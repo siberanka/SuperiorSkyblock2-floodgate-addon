@@ -1,0 +1,31 @@
+# SSBGeyser - SuperiorSkyblock2 Bedrock/Floodgate Addon Configuration
+
+# Default language file to load (messages_tr.yml, messages_en.yml, etc.)
+language: "tr"
+
+# GUI Translation Settings
+gui:
+  # If true, items matching the filler-materials list will not be displayed as buttons in Bedrock forms.
+  # This makes Bedrock forms much cleaner and easier to navigate on mobile and consoles.
+  hide-filler-items: true
+
+  # Materials that should be treated as layout fillers and filtered out.
+  filler-materials:
+    - "GRAY_STAINED_GLASS_PANE"
+    - "BLACK_STAINED_GLASS_PANE"
+    - "WHITE_STAINED_GLASS_PANE"
+    - "GLASS_PANE"
+    - "AIR"
+
+  # Custom texture overrides for specific items.
+  # If an item isn't listed here, it will automatically fallback to standard Bedrock textures
+  # (textures/items/item_name or textures/blocks/block_name).
+  # URL images are supported and can be used for custom models or special heads.
+  texture-mappings:
+    "PLAYER_HEAD": "textures/items/painting" # Will be dynamically overridden if head has custom skins
+    "REDSTONE": "textures/items/redstone_dust"
+    "COMPASS": "textures/items/compass_item"
+    "CLOCK": "textures/items/clock_item"
+
+  # Sound to play when a Bedrock player clicks a button on a form (use bukkit sound name or empty to disable)
+  click-sound: "UI_BUTTON_CLICK"

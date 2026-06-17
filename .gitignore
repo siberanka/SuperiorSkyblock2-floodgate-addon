@@ -1,0 +1,25 @@
+# Gradle build files
+.gradle/
+build/
+
+# IDE configurations
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+bin/
+out/
+
+# Local configuration files that may contain developer-specific options
+gradle.properties
+local.properties
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log

@@ -1,0 +1,8 @@
+# SSBGeyser - English Language File
+
+prefix: "&8[&bSSBGeyser&8] &r"
+no-permission: "&cYou do not have permission to execute this command!"
+only-players: "&cOnly players can execute this command!"
+reloaded: "&aPlugin configurations and language files have been successfully reloaded."
+error-occurred: "&cA error occurred during virtual click simulation! Check the console for details."
+menu-header-info: "§eSelect an option below:"

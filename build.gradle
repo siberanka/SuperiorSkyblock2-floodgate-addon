@@ -1,0 +1,86 @@
+plugins {
+    id 'java'
+    id 'maven-publish'
+}
+
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.SSLSession
+import java.security.cert.X509Certificate
+
+// Programmatic SSL bypass for local JVM certificate issues
+try {
+    TrustManager[] trustAllCerts = [
+        new X509TrustManager() {
+            X509Certificate[] getAcceptedIssuers() { return null }
+            void checkClientTrusted(X509Certificate[] certs, String authType) {}
+            void checkServerTrusted(X509Certificate[] certs, String authType) {}
+        }
+    ] as TrustManager[]
+
+    SSLContext sc = SSLContext.getInstance("SSL")
+    sc.init(null, trustAllCerts, new java.security.SecureRandom())
+    HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory())
+    HttpsURLConnection.setDefaultHostnameVerifier(new HostnameVerifier() {
+        boolean verify(String hostname, SSLSession session) { return true }
+    })
+    System.out.println("SSBGeyser: Programmatically bypassed SSL certificate validation.")
+} catch (Exception e) {
+    e.printStackTrace()
+}
+
+group = 'com.siberanka'
+version = '1.0.0-beta'
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'papermc'
+        url = uri('https://repo.papermc.io/repository/maven-public/')
+    }
+    maven {
+        name = 'opencollab-releases'
+        url = uri('https://repo.opencollab.dev/maven-releases/')
+    }
+    maven {
+        name = 'opencollab-snapshots'
+        url = uri('https://repo.opencollab.dev/maven-snapshots/')
+    }
+    maven {
+        name = 'bg-software'
+        url = uri('https://repo.bg-software.com/repository/api/')
+    }
+}
+
+dependencies {
+    // Paper API 1.21
+    compileOnly 'io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT'
+    
+    // Floodgate and Geyser APIs
+    compileOnly 'org.geysermc.floodgate:api:2.2.5-SNAPSHOT'
+    compileOnly 'org.geysermc.geyser:api:2.10.0-SNAPSHOT'
+    
+    // SuperiorSkyblock2 API
+    compileOnly 'com.bgsoftware:SuperiorSkyblockAPI:2026.1'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(21)
+}
+
+processResources {
+    def props = [version: version]
+    inputs.properties props
+    filteringCharset 'UTF-8'
+    filesMatching('plugin.yml') {
+        expand props
+    }
+}

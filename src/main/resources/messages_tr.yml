@@ -1,0 +1,8 @@
+# SSBGeyser - Türkçe Dil Dosyası
+
+prefix: "&8[&bSSBGeyser&8] &r"
+no-permission: "&cBu komutu kullanmak için yetkiniz yok!"
+only-players: "&cSadece oyuncular bu komutu kullanabilir!"
+reloaded: "&aEklenti ayarları ve dil dosyaları başarıyla yenilendi."
+error-occurred: "&cSanal tıklama simülasyonu sırasında bir hata oluştu! Detaylar için konsola bakın."
+menu-header-info: "§eAşağıdan bir seçenek belirleyin:"
