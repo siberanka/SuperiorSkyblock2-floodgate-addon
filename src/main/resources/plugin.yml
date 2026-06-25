@@ -4,9 +4,10 @@ main: com.siberanka.ssbgeyser.SSBGeyser
 api-version: '1.21'
 author: siberanka
 description: SuperiorSkyblock2 Bedrock/Floodgate GUI adaptation addon.
-softdepend:
+depend:
   - SuperiorSkyblock2
   - Floodgate
+softdepend:
   - Geyser-Spigot
 commands:
   ssbgeyser:

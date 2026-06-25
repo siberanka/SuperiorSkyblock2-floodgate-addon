@@ -2,6 +2,7 @@ package com.siberanka.ssbgeyser.config;
 
 import com.siberanka.ssbgeyser.SSBGeyser;
 import org.bukkit.ChatColor;
+import org.bukkit.Sound;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 
@@ -9,9 +10,12 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public class ConfigManager {
 
@@ -23,8 +27,9 @@ public class ConfigManager {
     // GUI settings cache
     private boolean hideFillerItems;
     private List<String> fillerMaterials;
+    private Set<String> fillerMaterialSet;
     private Map<String, String> textureMappings;
-    private String clickSound;
+    private Sound clickSound;
 
     public ConfigManager(SSBGeyser plugin) {
         this.plugin = plugin;
@@ -39,7 +44,13 @@ public class ConfigManager {
         // Load cached values
         this.hideFillerItems = config.getBoolean("gui.hide-filler-items", true);
         this.fillerMaterials = config.getStringList("gui.filler-materials");
-        this.clickSound = config.getString("gui.click-sound", "UI_BUTTON_CLICK");
+        this.fillerMaterialSet = new HashSet<>();
+        for (String fillerMaterial : this.fillerMaterials) {
+            if (fillerMaterial != null) {
+                this.fillerMaterialSet.add(fillerMaterial.toUpperCase(Locale.ROOT));
+            }
+        }
+        this.clickSound = parseSound(config.getString("gui.click-sound", "UI_BUTTON_CLICK"));
         
         this.textureMappings = new HashMap<>();
         if (config.isConfigurationSection("gui.texture-mappings")) {
@@ -90,15 +101,32 @@ public class ConfigManager {
         return fillerMaterials;
     }
 
+    public boolean isFillerMaterial(String materialName) {
+        return materialName != null && fillerMaterialSet.contains(materialName.toUpperCase(Locale.ROOT));
+    }
+
     public Map<String, String> getTextureMappings() {
         return textureMappings;
     }
 
-    public String getClickSound() {
+    public Sound getClickSound() {
         return clickSound;
     }
 
     public FileConfiguration getConfig() {
         return config;
+    }
+
+    private Sound parseSound(String rawSound) {
+        if (rawSound == null || rawSound.isBlank()) {
+            return null;
+        }
+
+        try {
+            return Sound.valueOf(rawSound.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            plugin.getLogger().warning("Invalid gui.click-sound value '" + rawSound + "'. Click sound disabled.");
+            return null;
+        }
     }
 }

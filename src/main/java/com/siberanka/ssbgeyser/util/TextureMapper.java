@@ -8,12 +8,14 @@ import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.profile.PlayerProfile;
 import org.geysermc.cumulus.util.FormImage;
 
+import java.net.URI;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 
 public class TextureMapper {
 
+    private static final int MAX_TEXTURE_VALUE_LENGTH = 512;
     private final ConfigManager configManager;
     private static final Map<String, String> VANILLA_CORRECTIONS = new HashMap<>();
 
@@ -52,8 +54,10 @@ public class TextureMapper {
         Map<String, String> overrides = configManager.getTextureMappings();
         if (overrides.containsKey(matName)) {
             String overridePath = overrides.get(matName);
-            FormImage.Type type = overridePath.startsWith("http") ? FormImage.Type.URL : FormImage.Type.PATH;
-            return new TextureResult(type, overridePath);
+            TextureResult overrideTexture = createSafeTextureResult(overridePath);
+            if (overrideTexture != null) {
+                return overrideTexture;
+            }
         }
 
         // 2. Check if it's a player head with custom skin URL
@@ -64,7 +68,7 @@ public class TextureMapper {
                     PlayerProfile profile = skullMeta.getPlayerProfile();
                     if (profile != null && profile.getTextures() != null) {
                         URL skinUrl = profile.getTextures().getSkin();
-                        if (skinUrl != null) {
+                        if (skinUrl != null && isAllowedTextureUrl(skinUrl.toString())) {
                             return new TextureResult(FormImage.Type.URL, skinUrl.toString());
                         }
                     }
@@ -103,5 +107,54 @@ public class TextureMapper {
         public String getPath() {
             return path;
         }
+    }
+
+    private TextureResult createSafeTextureResult(String rawValue) {
+        if (rawValue == null) {
+            return null;
+        }
+
+        String value = rawValue.trim();
+        if (value.isEmpty() || value.length() > MAX_TEXTURE_VALUE_LENGTH) {
+            return null;
+        }
+
+        if (isAllowedTextureUrl(value)) {
+            return new TextureResult(FormImage.Type.URL, value);
+        }
+
+        if (isAllowedTexturePath(value)) {
+            return new TextureResult(FormImage.Type.PATH, value);
+        }
+
+        return null;
+    }
+
+    private boolean isAllowedTextureUrl(String value) {
+        try {
+            URI uri = URI.create(value);
+            String scheme = uri.getScheme();
+            return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                    && uri.getHost() != null
+                    && value.length() <= MAX_TEXTURE_VALUE_LENGTH;
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+    }
+
+    private boolean isAllowedTexturePath(String value) {
+        if (value.length() > MAX_TEXTURE_VALUE_LENGTH || value.startsWith("/") || value.contains("..")) {
+            return false;
+        }
+
+        for (int index = 0; index < value.length(); index++) {
+            char ch = value.charAt(index);
+            boolean allowed = Character.isLetterOrDigit(ch) || ch == '_' || ch == '-' || ch == '/' || ch == '.';
+            if (!allowed) {
+                return false;
+            }
+        }
+
+        return value.startsWith("textures/");
     }
 }

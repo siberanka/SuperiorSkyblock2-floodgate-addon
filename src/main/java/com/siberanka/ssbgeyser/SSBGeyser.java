@@ -21,6 +21,11 @@ public class SSBGeyser extends JavaPlugin implements TabExecutor {
 
     @Override
     public void onEnable() {
+        if (!hasRequiredPlugin("SuperiorSkyblock2") || !hasRequiredPlugin("Floodgate")) {
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+
         // 1. Initialize configuration and languages
         this.configManager = new ConfigManager(this);
 
@@ -84,5 +89,14 @@ public class SSBGeyser extends JavaPlugin implements TabExecutor {
 
     public FormManager getFormManager() {
         return formManager;
+    }
+
+    private boolean hasRequiredPlugin(String pluginName) {
+        if (getServer().getPluginManager().isPluginEnabled(pluginName)) {
+            return true;
+        }
+
+        getLogger().severe("Required dependency is missing or disabled: " + pluginName);
+        return false;
     }
 }

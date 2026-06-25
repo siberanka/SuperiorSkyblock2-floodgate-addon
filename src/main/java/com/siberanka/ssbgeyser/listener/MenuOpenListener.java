@@ -2,12 +2,15 @@ package com.siberanka.ssbgeyser.listener;
 
 import com.siberanka.ssbgeyser.SSBGeyser;
 import com.siberanka.ssbgeyser.form.FormManager;
+import com.bgsoftware.superiorskyblock.api.menu.view.MenuView;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryOpenEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.server.PluginDisableEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.geysermc.floodgate.api.FloodgateApi;
@@ -28,8 +31,7 @@ public class MenuOpenListener implements Listener {
             return;
         }
 
-        // Verify if the player is a Bedrock/Floodgate player
-        if (!FloodgateApi.getInstance().isFloodgatePlayer(player.getUniqueId())) {
+        if (!isFloodgatePlayer(player)) {
             return;
         }
 
@@ -60,6 +62,10 @@ public class MenuOpenListener implements Listener {
      * Checks if the inventory holder belongs to a SuperiorSkyblock2 GUI menu.
      */
     private boolean isSuperiorSkyblockMenu(InventoryHolder holder) {
+        if (holder instanceof MenuView<?, ?>) {
+            return true;
+        }
+
         Class<?> clazz = holder.getClass();
         
         // Check official API interface
@@ -72,5 +78,28 @@ public class MenuOpenListener implements Listener {
         // Fallback package check for internal SuperiorSkyblock2 menus
         String packageName = clazz.getPackageName();
         return packageName.startsWith("com.bgsoftware.superiorskyblock");
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        formManager.handlePlayerDisconnect(event.getPlayer());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPluginDisable(PluginDisableEvent event) {
+        String pluginName = event.getPlugin().getName();
+        if (pluginName.equalsIgnoreCase("SuperiorSkyblock2") || pluginName.equalsIgnoreCase("Floodgate")) {
+            formManager.closeAllActiveForms();
+            Bukkit.getScheduler().runTask(plugin, () -> Bukkit.getPluginManager().disablePlugin(plugin));
+        }
+    }
+
+    private boolean isFloodgatePlayer(Player player) {
+        try {
+            return FloodgateApi.getInstance().isFloodgatePlayer(player.getUniqueId());
+        } catch (RuntimeException ex) {
+            plugin.getLogger().warning("Floodgate API was unavailable while opening a menu for " + player.getName() + ".");
+            return false;
+        }
     }
 }

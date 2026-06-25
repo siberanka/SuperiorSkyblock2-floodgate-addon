@@ -3,8 +3,11 @@ package com.siberanka.ssbgeyser.form;
 import com.siberanka.ssbgeyser.SSBGeyser;
 import com.siberanka.ssbgeyser.config.ConfigManager;
 import com.siberanka.ssbgeyser.util.TextureMapper;
+import com.bgsoftware.superiorskyblock.api.menu.Menu;
+import com.bgsoftware.superiorskyblock.api.menu.view.MenuView;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
@@ -13,6 +16,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -23,12 +27,21 @@ import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Level;
 
 public class FormManager {
+
+    private static final int MAX_TITLE_LENGTH = 80;
+    private static final int MAX_CONTENT_LENGTH = 256;
+    private static final int MAX_BUTTON_TEXT_LENGTH = 768;
+    private static final int MAX_LORE_LINES = 12;
+    private static final long POST_CLICK_CLEANUP_DELAY_TICKS = 2L;
 
     private final SSBGeyser plugin;
     private final ConfigManager configManager;
@@ -51,12 +64,18 @@ public class FormManager {
         FloodgatePlayer floodgatePlayer = FloodgateApi.getInstance().getPlayer(uuid);
         if (floodgatePlayer == null) return;
 
+        ActiveFormSession previousSession = activeSessions.remove(uuid);
+        if (previousSession != null) {
+            dispatchCloseOnce(player, previousSession);
+        }
+
         SimpleForm.Builder formBuilder = SimpleForm.builder();
-        formBuilder.title(ChatColor.stripColor(title));
-        formBuilder.content(configManager.getMessage("menu-header-info", "§eAşağıdan bir seçenek belirleyin:"));
+        formBuilder.title(sanitizeFormText(title, MAX_TITLE_LENGTH, false));
+        formBuilder.content(sanitizeFormText(configManager.getMessage("menu-header-info", "Select an option below:"), MAX_CONTENT_LENGTH, false));
 
         List<Integer> buttonToSlotMap = new ArrayList<>();
         int size = inventory.getSize();
+        MenuView<?, ?> superiorMenuView = getSuperiorMenuView(inventory);
 
         for (int slot = 0; slot < size; slot++) {
             ItemStack item = inventory.getItem(slot);
@@ -64,8 +83,12 @@ public class FormManager {
                 continue;
             }
 
+            if (superiorMenuView != null && !hasSuperiorButton(superiorMenuView, slot)) {
+                continue;
+            }
+
             String matName = item.getType().name();
-            if (configManager.isHideFillerItems() && configManager.getFillerMaterials().contains(matName)) {
+            if (configManager.isHideFillerItems() && configManager.isFillerMaterial(matName)) {
                 continue;
             }
 
@@ -74,10 +97,18 @@ public class FormManager {
             List<String> lore = (meta != null && meta.hasLore()) ? meta.getLore() : new ArrayList<>();
 
             // Build button text (Display name + Lore as description)
-            StringBuilder buttonText = new StringBuilder(displayName);
+            StringBuilder buttonText = new StringBuilder(sanitizeFormText(displayName, MAX_BUTTON_TEXT_LENGTH, false));
             if (lore != null && !lore.isEmpty()) {
+                int loreLines = 0;
                 for (String line : lore) {
-                    buttonText.append("\n").append(line);
+                    if (loreLines++ >= MAX_LORE_LINES || buttonText.length() >= MAX_BUTTON_TEXT_LENGTH) {
+                        break;
+                    }
+                    int remainingLength = MAX_BUTTON_TEXT_LENGTH - buttonText.length() - 1;
+                    if (remainingLength <= 0) {
+                        break;
+                    }
+                    buttonText.append("\n").append(sanitizeFormText(line, remainingLength, false));
                 }
             }
 
@@ -89,7 +120,7 @@ public class FormManager {
 
         // Create the custom dynamic view proxy
         InventoryView mockView = createMockView(player, inventory, title);
-        ActiveFormSession session = new ActiveFormSession(inventory, title, buttonToSlotMap, mockView);
+        ActiveFormSession session = new ActiveFormSession(inventory, title, buttonToSlotMap, mockView, superiorMenuView);
         activeSessions.put(uuid, session);
 
         formBuilder.validResultHandler(response -> {
@@ -100,30 +131,37 @@ public class FormManager {
             }
         });
 
-        formBuilder.closedResultHandler(response -> {
-            simulateClose(player, uuid, session);
-        });
+        formBuilder.closedResultHandler(response -> simulateClose(player, uuid, session));
+        formBuilder.invalidResultHandler(response -> simulateClose(player, uuid, session));
 
         // Send form using Floodgate Player
-        floodgatePlayer.sendForm(formBuilder.build());
+        try {
+            floodgatePlayer.sendForm(formBuilder.build());
+        } catch (RuntimeException ex) {
+            activeSessions.remove(uuid, session);
+            dispatchCloseOnce(player, session);
+            plugin.getLogger().log(Level.SEVERE, "Failed to send Bedrock form for player " + player.getName(), ex);
+        }
     }
 
     /**
      * Simulates the inventory click on the main server thread.
      */
     private void simulateClick(Player player, UUID uuid, int slotIndex, ActiveFormSession session) {
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        runOnMainThread(() -> {
+            if (!session.markResponseHandled() || activeSessions.get(uuid) != session) {
+                return;
+            }
+
             if (!player.isOnline()) {
-                activeSessions.remove(uuid);
+                activeSessions.remove(uuid, session);
                 return;
             }
 
             // Play Click Sound
-            String soundName = configManager.getClickSound();
-            if (soundName != null && !soundName.isEmpty()) {
-                try {
-                    player.playSound(player.getLocation(), Sound.valueOf(soundName.toUpperCase()), 1.0f, 1.0f);
-                } catch (IllegalArgumentException ignored) {}
+            Sound clickSound = configManager.getClickSound();
+            if (clickSound != null) {
+                player.playSound(player.getLocation(), clickSound, 1.0f, 1.0f);
             }
 
             try {
@@ -136,12 +174,12 @@ public class FormManager {
                         InventoryAction.PICKUP_ALL
                 );
 
-                // Call the click event globally
-                Bukkit.getPluginManager().callEvent(clickEvent);
+                dispatchClick(clickEvent, session);
             } catch (Exception e) {
                 player.sendMessage(configManager.getMessage("prefix") + configManager.getMessage("error-occurred"));
-                plugin.getLogger().severe("Error simulating inventory click for Bedrock player " + player.getName());
-                e.printStackTrace();
+                plugin.getLogger().log(Level.SEVERE, "Error simulating inventory click for Bedrock player " + player.getName(), e);
+            } finally {
+                closeSessionLaterIfStillActive(player, uuid, session);
             }
         });
     }
@@ -150,16 +188,21 @@ public class FormManager {
      * Simulates the inventory close event to let plugins clean up menu state.
      */
     private void simulateClose(Player player, UUID uuid, ActiveFormSession session) {
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            activeSessions.remove(uuid);
+        runOnMainThread(() -> {
+            if (!session.markResponseHandled()) {
+                return;
+            }
+
+            if (!activeSessions.remove(uuid, session)) {
+                return;
+            }
+
             if (!player.isOnline()) return;
 
             try {
-                InventoryCloseEvent closeEvent = new InventoryCloseEvent(session.getMockView());
-                Bukkit.getPluginManager().callEvent(closeEvent);
+                dispatchCloseOnce(player, session);
             } catch (Exception e) {
-                plugin.getLogger().severe("Error simulating inventory close for Bedrock player " + player.getName());
-                e.printStackTrace();
+                plugin.getLogger().log(Level.SEVERE, "Error simulating inventory close for Bedrock player " + player.getName(), e);
             }
         });
     }
@@ -179,13 +222,138 @@ public class FormManager {
                     if (connection != null) {
                         connection.closeForm();
                     }
-                } catch (ClassNotFoundException ignored) {
+                } catch (Throwable ignored) {
                     // Fallback to closing standard inventory
                     player.closeInventory();
+                }
+
+                ActiveFormSession session = activeSessions.get(uuid);
+                if (session != null) {
+                    dispatchCloseOnce(player, session);
                 }
             }
         }
         activeSessions.clear();
+    }
+
+    public void handlePlayerDisconnect(Player player) {
+        ActiveFormSession session = activeSessions.remove(player.getUniqueId());
+        if (session != null) {
+            dispatchCloseOnce(player, session);
+        }
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void dispatchClick(InventoryClickEvent clickEvent, ActiveFormSession session) {
+        MenuView menuView = session.getSuperiorMenuView();
+        if (menuView != null) {
+            Menu menu = menuView.getMenu();
+            if (menu != null) {
+                clickEvent.setCancelled(true);
+                menu.onClick(clickEvent, menuView);
+                return;
+            }
+        }
+
+        Bukkit.getPluginManager().callEvent(clickEvent);
+    }
+
+    private void dispatchCloseOnce(Player player, ActiveFormSession session) {
+        if (!session.markCloseDispatched()) {
+            return;
+        }
+
+        dispatchClose(player, session);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void dispatchClose(Player player, ActiveFormSession session) {
+        InventoryCloseEvent closeEvent = new InventoryCloseEvent(session.getMockView());
+        MenuView menuView = session.getSuperiorMenuView();
+        if (menuView != null) {
+            Menu menu = menuView.getMenu();
+            if (menu != null) {
+                menu.onClose(closeEvent, menuView);
+                return;
+            }
+        }
+
+        Bukkit.getPluginManager().callEvent(closeEvent);
+    }
+
+    private void closeSessionLaterIfStillActive(Player player, UUID uuid, ActiveFormSession session) {
+        if (!plugin.isEnabled()) {
+            activeSessions.remove(uuid, session);
+            dispatchCloseOnce(player, session);
+            return;
+        }
+
+        try {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (activeSessions.remove(uuid, session)) {
+                    dispatchCloseOnce(player, session);
+                }
+            }, POST_CLICK_CLEANUP_DELAY_TICKS);
+        } catch (IllegalStateException ignored) {
+            activeSessions.remove(uuid, session);
+        }
+    }
+
+    private void runOnMainThread(Runnable task) {
+        if (!plugin.isEnabled()) {
+            return;
+        }
+
+        if (Bukkit.isPrimaryThread()) {
+            task.run();
+            return;
+        }
+
+        try {
+            Bukkit.getScheduler().runTask(plugin, task);
+        } catch (IllegalStateException ignored) {
+            // Server is shutting down or the plugin was disabled between the response and scheduling.
+        }
+    }
+
+    private MenuView<?, ?> getSuperiorMenuView(Inventory inventory) {
+        InventoryHolder holder = inventory.getHolder();
+        return holder instanceof MenuView<?, ?> menuView ? menuView : null;
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private boolean hasSuperiorButton(MenuView<?, ?> menuView, int slot) {
+        try {
+            MenuView rawView = menuView;
+            Menu menu = rawView.getMenu();
+            return menu != null && menu.getLayout() != null && menu.getLayout().getButton(slot) != null;
+        } catch (RuntimeException ex) {
+            plugin.getLogger().log(Level.WARNING, "Failed to inspect a SuperiorSkyblock menu button at slot " + slot, ex);
+            return false;
+        }
+    }
+
+    private String sanitizeFormText(String input, int maxLength, boolean allowNewLines) {
+        if (input == null || maxLength <= 0) {
+            return "";
+        }
+
+        String stripped = ChatColor.stripColor(input);
+        if (stripped == null) {
+            return "";
+        }
+
+        StringBuilder sanitized = new StringBuilder(Math.min(stripped.length(), maxLength));
+        for (int index = 0; index < stripped.length() && sanitized.length() < maxLength; index++) {
+            char ch = stripped.charAt(index);
+            if (ch == '\n' && allowNewLines) {
+                sanitized.append(ch);
+            } else if (ch >= 32 && ch != 127) {
+                sanitized.append(ch);
+            }
+        }
+
+        return sanitized.toString();
     }
 
     /**
@@ -212,6 +380,12 @@ public class FormManager {
                 new Class<?>[]{InventoryView.class},
                 (proxy, method, args) -> {
                     switch (method.getName()) {
+                        case "toString":
+                            return "SSBGeyserInventoryView{title=" + title + ", player=" + player.getName() + "}";
+                        case "hashCode":
+                            return System.identityHashCode(proxy);
+                        case "equals":
+                            return proxy == args[0];
                         case "getTopInventory":
                             return inventory;
                         case "getBottomInventory":
@@ -223,23 +397,64 @@ public class FormManager {
                         case "getTitle":
                             return title;
                         case "convertSlot":
-                            return args[0]; // Raw slot index equals local slot index in simplified chest views
+                            int rawSlot = (int) args[0];
+                            return rawSlot < inventory.getSize() ? rawSlot : rawSlot - inventory.getSize();
+                        case "getInventory":
+                            int inventorySlot = (int) args[0];
+                            if (inventorySlot < 0) {
+                                return null;
+                            }
+                            if (inventorySlot < inventory.getSize()) {
+                                return inventory;
+                            }
+                            return inventorySlot < inventory.getSize() + player.getInventory().getSize() ? player.getInventory() : null;
+                        case "getSlotType":
+                            int slotTypeIndex = (int) args[0];
+                            if (slotTypeIndex < 0 || slotTypeIndex >= inventory.getSize() + player.getInventory().getSize()) {
+                                return InventoryType.SlotType.OUTSIDE;
+                            }
+                            if (slotTypeIndex < inventory.getSize()) {
+                                return InventoryType.SlotType.CONTAINER;
+                            }
+                            return InventoryType.SlotType.QUICKBAR;
+                        case "countSlots":
+                            return inventory.getSize() + player.getInventory().getSize();
+                        case "close":
+                            player.closeInventory();
+                            return null;
+                        case "getCursor":
+                            return player.getItemOnCursor();
+                        case "setCursor":
+                            ItemStack cursorItem = args[0] instanceof ItemStack ? (ItemStack) args[0] : new ItemStack(Material.AIR);
+                            player.setItemOnCursor(cursorItem);
+                            return null;
+                        case "setProperty":
+                            return false;
                         case "setItem":
                             int setSlot = (int) args[0];
                             ItemStack setItem = (ItemStack) args[1];
-                            if (setSlot < inventory.getSize()) {
+                            if (setSlot < 0) {
+                                return null;
+                            } else if (setSlot < inventory.getSize()) {
                                 inventory.setItem(setSlot, setItem);
-                            } else {
+                            } else if (setSlot < inventory.getSize() + player.getInventory().getSize()) {
                                 player.getInventory().setItem(setSlot - inventory.getSize(), setItem);
                             }
                             return null;
                         case "getItem":
                             int getSlot = (int) args[0];
-                            if (getSlot < inventory.getSize()) {
+                            if (getSlot < 0) {
+                                return null;
+                            } else if (getSlot < inventory.getSize()) {
                                 return inventory.getItem(getSlot);
-                            } else {
+                            } else if (getSlot < inventory.getSize() + player.getInventory().getSize()) {
                                 return player.getInventory().getItem(getSlot - inventory.getSize());
                             }
+                            return null;
+                        case "getOriginalTitle":
+                            return title;
+                        case "setTitle":
+                            return null;
                         default:
                             Class<?> returnType = method.getReturnType();
                             if (returnType == int.class || returnType == Integer.class) {
@@ -258,12 +473,16 @@ public class FormManager {
         private final String title;
         private final List<Integer> buttonToSlotMap;
         private final InventoryView mockView;
+        private final MenuView<?, ?> superiorMenuView;
+        private final AtomicBoolean responseHandled = new AtomicBoolean(false);
+        private final AtomicBoolean closeDispatched = new AtomicBoolean(false);
 
-        public ActiveFormSession(Inventory inventory, String title, List<Integer> buttonToSlotMap, InventoryView mockView) {
+        public ActiveFormSession(Inventory inventory, String title, List<Integer> buttonToSlotMap, InventoryView mockView, MenuView<?, ?> superiorMenuView) {
             this.inventory = inventory;
             this.title = title;
-            this.buttonToSlotMap = buttonToSlotMap;
+            this.buttonToSlotMap = Collections.unmodifiableList(new ArrayList<>(buttonToSlotMap));
             this.mockView = mockView;
+            this.superiorMenuView = superiorMenuView;
         }
 
         public Inventory getInventory() {
@@ -280,6 +499,18 @@ public class FormManager {
 
         public InventoryView getMockView() {
             return mockView;
+        }
+
+        public MenuView<?, ?> getSuperiorMenuView() {
+            return superiorMenuView;
+        }
+
+        public boolean markResponseHandled() {
+            return responseHandled.compareAndSet(false, true);
+        }
+
+        public boolean markCloseDispatched() {
+            return closeDispatched.compareAndSet(false, true);
         }
     }
 }
