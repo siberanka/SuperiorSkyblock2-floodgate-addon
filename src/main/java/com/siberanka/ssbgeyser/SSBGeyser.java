@@ -21,7 +21,7 @@ public class SSBGeyser extends JavaPlugin implements TabExecutor {
 
     @Override
     public void onEnable() {
-        if (!hasRequiredPlugin("SuperiorSkyblock2") || !hasRequiredPlugin("Floodgate")) {
+        if (!hasRequiredPlugin("SuperiorSkyblock2") || !hasRequiredPlugin("floodgate")) {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }

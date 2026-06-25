@@ -6,7 +6,7 @@ author: siberanka
 description: SuperiorSkyblock2 Bedrock/Floodgate GUI adaptation addon.
 depend:
   - SuperiorSkyblock2
-  - Floodgate
+  - floodgate
 softdepend:
   - Geyser-Spigot
 commands:
