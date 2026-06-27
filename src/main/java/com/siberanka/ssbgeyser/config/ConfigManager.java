@@ -27,6 +27,9 @@ public class ConfigManager {
     // GUI settings cache
     private boolean hideFillerItems;
     private boolean hideEmptyButtons;
+    private boolean playClickSound;
+    private long minClickIntervalMillis;
+    private long formSessionTimeoutMillis;
     private List<String> fillerMaterials;
     private Set<String> fillerMaterialSet;
     private Map<String, String> textureMappings;
@@ -45,6 +48,9 @@ public class ConfigManager {
         // Load cached values
         this.hideFillerItems = config.getBoolean("gui.hide-filler-items", true);
         this.hideEmptyButtons = config.getBoolean("gui.hide-empty-buttons", true);
+        this.playClickSound = config.getBoolean("gui.play-click-sound", false);
+        this.minClickIntervalMillis = clampLong(config.getLong("security.min-click-interval-ms", 150L), 0L, 2000L);
+        this.formSessionTimeoutMillis = clampLong(config.getLong("security.form-session-timeout-ms", 30000L), 5000L, 300000L);
         this.fillerMaterials = config.getStringList("gui.filler-materials");
         this.fillerMaterialSet = new HashSet<>();
         for (String fillerMaterial : this.fillerMaterials) {
@@ -57,7 +63,7 @@ public class ConfigManager {
         this.textureMappings = new HashMap<>();
         if (config.isConfigurationSection("gui.texture-mappings")) {
             for (String key : config.getConfigurationSection("gui.texture-mappings").getKeys(false)) {
-                this.textureMappings.put(key.toUpperCase(), config.getString("gui.texture-mappings." + key));
+                this.textureMappings.put(key.toUpperCase(Locale.ROOT), config.getString("gui.texture-mappings." + key));
             }
         }
 
@@ -103,6 +109,18 @@ public class ConfigManager {
         return hideEmptyButtons;
     }
 
+    public boolean isPlayClickSound() {
+        return playClickSound;
+    }
+
+    public long getMinClickIntervalMillis() {
+        return minClickIntervalMillis;
+    }
+
+    public long getFormSessionTimeoutMillis() {
+        return formSessionTimeoutMillis;
+    }
+
     public List<String> getFillerMaterials() {
         return fillerMaterials;
     }
@@ -116,7 +134,7 @@ public class ConfigManager {
     }
 
     public Sound getClickSound() {
-        return clickSound;
+        return playClickSound ? clickSound : null;
     }
 
     public FileConfiguration getConfig() {
@@ -131,8 +149,30 @@ public class ConfigManager {
         try {
             return Sound.valueOf(rawSound.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
-            plugin.getLogger().warning("Invalid gui.click-sound value '" + rawSound + "'. Click sound disabled.");
+            plugin.getLogger().warning("Invalid gui.click-sound value '" + safeForLog(rawSound) + "'. Click sound disabled.");
             return null;
         }
+    }
+
+    private long clampLong(long value, long min, long max) {
+        if (value < min) {
+            return min;
+        }
+        return Math.min(value, max);
+    }
+
+    private String safeForLog(String input) {
+        if (input == null) {
+            return "";
+        }
+
+        StringBuilder safe = new StringBuilder(Math.min(input.length(), 64));
+        for (int index = 0; index < input.length() && safe.length() < 64; index++) {
+            char ch = input.charAt(index);
+            if (ch >= 32 && ch != 127) {
+                safe.append(ch);
+            }
+        }
+        return safe.toString();
     }
 }

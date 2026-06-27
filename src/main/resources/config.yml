@@ -28,5 +28,18 @@ gui:
   # URL images are supported and can be used for custom models or special heads.
   texture-mappings: {}
 
-  # Sound to play when a Bedrock player clicks a button on a form (use bukkit sound name or empty to disable)
+  # Keep this false unless you intentionally want an extra form click sound.
+  # SuperiorSkyblock2 menus can already play their own success/fail sounds.
+  play-click-sound: false
+
+  # Sound to play when play-click-sound is enabled (use bukkit sound name or empty to disable)
   click-sound: "UI_BUTTON_CLICK"
+
+# Defensive limits for malicious clients, stale forms and accidental double responses.
+security:
+  # Minimum delay between accepted Bedrock form clicks for one player.
+  # This is intentionally small so normal menu use is not affected.
+  min-click-interval-ms: 150
+
+  # Ignore form responses that arrive long after their source menu was opened.
+  form-session-timeout-ms: 30000

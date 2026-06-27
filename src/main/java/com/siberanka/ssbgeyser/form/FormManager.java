@@ -48,6 +48,7 @@ public class FormManager {
     
     // Tracks active Bedrock form sessions to allow click simulation and clean up
     private final Map<UUID, ActiveFormSession> activeSessions = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastClickMillis = new ConcurrentHashMap<>();
 
     public FormManager(SSBGeyser plugin, ConfigManager configManager, TextureMapper textureMapper) {
         this.plugin = plugin;
@@ -59,8 +60,18 @@ public class FormManager {
      * Translates a Java Chest GUI into a Bedrock SimpleForm and sends it.
      */
     public void sendForm(Player player, Inventory inventory, String title) {
+        if (!plugin.isEnabled() || !player.isOnline() || inventory == null) {
+            return;
+        }
+
         UUID uuid = player.getUniqueId();
-        FloodgatePlayer floodgatePlayer = FloodgateApi.getInstance().getPlayer(uuid);
+        FloodgatePlayer floodgatePlayer;
+        try {
+            floodgatePlayer = FloodgateApi.getInstance().getPlayer(uuid);
+        } catch (RuntimeException ex) {
+            plugin.getLogger().log(Level.WARNING, "Floodgate API was unavailable while preparing a Bedrock form for " + safeForLog(player.getName()) + ".", ex);
+            return;
+        }
         if (floodgatePlayer == null) return;
 
         ActiveFormSession previousSession = activeSessions.remove(uuid);
@@ -72,72 +83,79 @@ public class FormManager {
         formBuilder.title(sanitizeFormText(title, MAX_TITLE_LENGTH, false));
         formBuilder.content(sanitizeFormText(configManager.getMessage("menu-header-info", "Select an option below:"), MAX_CONTENT_LENGTH, false));
 
-        List<Integer> buttonToSlotMap = new ArrayList<>();
+        List<ButtonTarget> buttonTargets = new ArrayList<>();
         int size = inventory.getSize();
         MenuView<?, ?> superiorMenuView = getSuperiorMenuView(inventory);
 
         for (int slot = 0; slot < size; slot++) {
-            ItemStack item = inventory.getItem(slot);
-            if (item == null || item.getType().isAir()) {
-                continue;
-            }
+            try {
+                ItemStack item = inventory.getItem(slot);
+                if (item == null || item.getType().isAir()) {
+                    continue;
+                }
 
-            if (superiorMenuView != null && !hasSuperiorButton(superiorMenuView, slot)) {
-                continue;
-            }
+                String matName = item.getType().name();
+                if (configManager.isHideFillerItems() && isLayoutFillerMaterial(matName)) {
+                    continue;
+                }
 
-            String matName = item.getType().name();
-            if (configManager.isHideFillerItems() && isLayoutFillerMaterial(matName)) {
-                continue;
-            }
+                ItemMeta meta = item.getItemMeta();
+                String displayName = (meta != null && meta.hasDisplayName()) ? meta.getDisplayName() : formatItemName(matName);
+                List<String> lore = (meta != null && meta.hasLore()) ? meta.getLore() : new ArrayList<>();
 
-            ItemMeta meta = item.getItemMeta();
-            String displayName = (meta != null && meta.hasDisplayName()) ? meta.getDisplayName() : formatItemName(matName);
-            List<String> lore = (meta != null && meta.hasLore()) ? meta.getLore() : new ArrayList<>();
-
-            // Build button text (Display name + Lore as description)
-            StringBuilder buttonText = new StringBuilder(sanitizeFormText(displayName, MAX_BUTTON_TEXT_LENGTH, false));
-            if (lore != null && !lore.isEmpty()) {
-                int loreLines = 0;
-                for (String line : lore) {
-                    if (loreLines++ >= MAX_LORE_LINES || buttonText.length() >= MAX_BUTTON_TEXT_LENGTH) {
-                        break;
-                    }
-                    int remainingLength = MAX_BUTTON_TEXT_LENGTH - buttonText.length() - 1;
-                    if (remainingLength <= 0) {
-                        break;
-                    }
-                    String sanitizedLine = sanitizeFormText(line, remainingLength, false);
-                    if (!sanitizedLine.isBlank()) {
-                        buttonText.append("\n").append(sanitizedLine);
+                // Build button text (Display name + Lore as description)
+                StringBuilder buttonText = new StringBuilder(sanitizeFormText(displayName, MAX_BUTTON_TEXT_LENGTH, false));
+                if (lore != null && !lore.isEmpty()) {
+                    int loreLines = 0;
+                    for (String line : lore) {
+                        if (loreLines++ >= MAX_LORE_LINES || buttonText.length() >= MAX_BUTTON_TEXT_LENGTH) {
+                            break;
+                        }
+                        int remainingLength = MAX_BUTTON_TEXT_LENGTH - buttonText.length() - 1;
+                        if (remainingLength <= 0) {
+                            break;
+                        }
+                        String sanitizedLine = sanitizeFormText(line, remainingLength, false);
+                        if (!sanitizedLine.isBlank()) {
+                            buttonText.append("\n").append(sanitizedLine);
+                        }
                     }
                 }
-            }
 
-            if (configManager.isHideEmptyButtons() && buttonText.toString().isBlank()) {
-                continue;
-            }
+                if (configManager.isHideEmptyButtons() && buttonText.toString().isBlank()) {
+                    continue;
+                }
 
-            // Map texture
-            TextureMapper.TextureResult texture = textureMapper.getTexture(item);
-            if (texture != null) {
-                formBuilder.button(buttonText.toString(), texture.getType(), texture.getPath());
-            } else {
-                formBuilder.button(buttonText.toString());
+                // Map texture
+                TextureMapper.TextureResult texture = textureMapper.getTexture(item);
+                if (texture != null) {
+                    formBuilder.button(buttonText.toString(), texture.getType(), texture.getPath());
+                } else {
+                    formBuilder.button(buttonText.toString());
+                }
+                buttonTargets.add(new ButtonTarget(slot, item.getType()));
+            } catch (RuntimeException ex) {
+                plugin.getLogger().log(Level.WARNING, "Skipped an invalid Bedrock form item at slot " + slot + " for " + safeForLog(player.getName()) + ".", ex);
             }
-            buttonToSlotMap.add(slot);
+        }
+
+        if (buttonTargets.isEmpty()) {
+            InventoryView emptyView = createMockView(player, inventory, title);
+            dispatchCloseOnce(player, new ActiveFormSession(inventory, title, buttonTargets, emptyView, superiorMenuView));
+            return;
         }
 
         // Create the custom dynamic view proxy
         InventoryView mockView = createMockView(player, inventory, title);
-        ActiveFormSession session = new ActiveFormSession(inventory, title, buttonToSlotMap, mockView, superiorMenuView);
+        ActiveFormSession session = new ActiveFormSession(inventory, title, buttonTargets, mockView, superiorMenuView);
         activeSessions.put(uuid, session);
 
         formBuilder.validResultHandler(response -> {
             int buttonId = response.clickedButtonId();
-            if (buttonId >= 0 && buttonId < buttonToSlotMap.size()) {
-                int slotIndex = buttonToSlotMap.get(buttonId);
-                simulateClick(player, uuid, slotIndex, session);
+            if (buttonId >= 0 && buttonId < buttonTargets.size()) {
+                simulateClick(player, uuid, buttonTargets.get(buttonId), session);
+            } else {
+                simulateClose(player, uuid, session);
             }
         });
 
@@ -150,14 +168,14 @@ public class FormManager {
         } catch (RuntimeException ex) {
             activeSessions.remove(uuid, session);
             dispatchCloseOnce(player, session);
-            plugin.getLogger().log(Level.SEVERE, "Failed to send Bedrock form for player " + player.getName(), ex);
+            plugin.getLogger().log(Level.SEVERE, "Failed to send Bedrock form for player " + safeForLog(player.getName()), ex);
         }
     }
 
     /**
      * Simulates the inventory click on the main server thread.
      */
-    private void simulateClick(Player player, UUID uuid, int slotIndex, ActiveFormSession session) {
+    private void simulateClick(Player player, UUID uuid, ButtonTarget target, ActiveFormSession session) {
         runOnMainThread(() -> {
             if (!session.markResponseHandled() || activeSessions.get(uuid) != session) {
                 return;
@@ -165,6 +183,12 @@ public class FormManager {
 
             if (!player.isOnline()) {
                 activeSessions.remove(uuid, session);
+                return;
+            }
+
+            if (isClickRateLimited(uuid) || session.isExpired(configManager.getFormSessionTimeoutMillis()) || !isClickTargetStillValid(session, target)) {
+                activeSessions.remove(uuid, session);
+                dispatchCloseOnce(player, session);
                 return;
             }
 
@@ -179,7 +203,7 @@ public class FormManager {
                 InventoryClickEvent clickEvent = new InventoryClickEvent(
                         session.getMockView(),
                         InventoryType.SlotType.CONTAINER,
-                        slotIndex,
+                        target.getSlot(),
                         ClickType.LEFT,
                         InventoryAction.PICKUP_ALL
                 );
@@ -187,7 +211,7 @@ public class FormManager {
                 dispatchClick(clickEvent, session);
             } catch (Exception e) {
                 player.sendMessage(configManager.getMessage("prefix") + configManager.getMessage("error-occurred"));
-                plugin.getLogger().log(Level.SEVERE, "Error simulating inventory click for Bedrock player " + player.getName(), e);
+                plugin.getLogger().log(Level.SEVERE, "Error simulating inventory click for Bedrock player " + safeForLog(player.getName()), e);
             } finally {
                 closeSessionLaterIfStillActive(player, uuid, session);
             }
@@ -212,7 +236,7 @@ public class FormManager {
             try {
                 dispatchCloseOnce(player, session);
             } catch (Exception e) {
-                plugin.getLogger().log(Level.SEVERE, "Error simulating inventory close for Bedrock player " + player.getName(), e);
+                plugin.getLogger().log(Level.SEVERE, "Error simulating inventory close for Bedrock player " + safeForLog(player.getName()), e);
             }
         });
     }
@@ -244,10 +268,12 @@ public class FormManager {
             }
         }
         activeSessions.clear();
+        lastClickMillis.keySet().removeIf(uuid -> Bukkit.getPlayer(uuid) == null);
     }
 
     public void handlePlayerDisconnect(Player player) {
         ActiveFormSession session = activeSessions.remove(player.getUniqueId());
+        lastClickMillis.remove(player.getUniqueId());
         if (session != null) {
             dispatchCloseOnce(player, session);
         }
@@ -332,21 +358,58 @@ public class FormManager {
     }
 
     private boolean isLayoutFillerMaterial(String materialName) {
-        return configManager.isFillerMaterial(materialName)
-                || materialName.endsWith("_STAINED_GLASS_PANE")
-                || materialName.equals("GLASS_PANE");
+        return configManager.isFillerMaterial(materialName);
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private boolean hasSuperiorButton(MenuView<?, ?> menuView, int slot) {
-        try {
-            MenuView rawView = menuView;
-            Menu menu = rawView.getMenu();
-            return menu != null && menu.getLayout() != null && menu.getLayout().getButton(slot) != null;
-        } catch (RuntimeException ex) {
-            plugin.getLogger().log(Level.WARNING, "Failed to inspect a SuperiorSkyblock menu button at slot " + slot, ex);
+    private boolean isClickRateLimited(UUID uuid) {
+        long minIntervalMillis = configManager.getMinClickIntervalMillis();
+        if (minIntervalMillis <= 0L) {
             return false;
         }
+
+        long now = System.currentTimeMillis();
+        Long previous = lastClickMillis.put(uuid, now);
+        return previous != null && now - previous < minIntervalMillis;
+    }
+
+    private boolean isClickTargetStillValid(ActiveFormSession session, ButtonTarget target) {
+        Inventory inventory = session.getInventory();
+        int slot = target.getSlot();
+        if (slot < 0 || slot >= inventory.getSize()) {
+            return false;
+        }
+
+        MenuView<?, ?> menuView = session.getSuperiorMenuView();
+        if (menuView != null && inventory.getHolder() != menuView) {
+            return false;
+        }
+
+        ItemStack currentItem = inventory.getItem(slot);
+        if (currentItem == null || currentItem.getType().isAir() || currentItem.getType() != target.getMaterial()) {
+            return false;
+        }
+
+        if (configManager.isHideFillerItems() && isLayoutFillerMaterial(currentItem.getType().name())) {
+            return false;
+        }
+
+        ItemMeta meta = currentItem.getItemMeta();
+        String displayName = (meta != null && meta.hasDisplayName()) ? meta.getDisplayName() : formatItemName(currentItem.getType().name());
+        if (!sanitizeFormText(displayName, MAX_BUTTON_TEXT_LENGTH, false).isBlank()) {
+            return true;
+        }
+
+        if (meta == null || !meta.hasLore() || meta.getLore() == null) {
+            return !configManager.isHideEmptyButtons();
+        }
+
+        for (String line : meta.getLore()) {
+            if (!sanitizeFormText(line, MAX_BUTTON_TEXT_LENGTH, false).isBlank()) {
+                return true;
+            }
+        }
+
+        return !configManager.isHideEmptyButtons();
     }
 
     private String sanitizeFormText(String input, int maxLength, boolean allowNewLines) {
@@ -370,6 +433,10 @@ public class FormManager {
         }
 
         return sanitized.toString();
+    }
+
+    private String safeForLog(String input) {
+        return sanitizeFormText(input, 64, false);
     }
 
     /**
@@ -484,21 +551,41 @@ public class FormManager {
         );
     }
 
-    public static class ActiveFormSession {
+    private static class ButtonTarget {
+        private final int slot;
+        private final Material material;
+
+        private ButtonTarget(int slot, Material material) {
+            this.slot = slot;
+            this.material = material;
+        }
+
+        public int getSlot() {
+            return slot;
+        }
+
+        public Material getMaterial() {
+            return material;
+        }
+    }
+
+    private static class ActiveFormSession {
         private final Inventory inventory;
         private final String title;
-        private final List<Integer> buttonToSlotMap;
+        private final List<ButtonTarget> buttonTargets;
         private final InventoryView mockView;
         private final MenuView<?, ?> superiorMenuView;
+        private final long createdAtMillis;
         private final AtomicBoolean responseHandled = new AtomicBoolean(false);
         private final AtomicBoolean closeDispatched = new AtomicBoolean(false);
 
-        public ActiveFormSession(Inventory inventory, String title, List<Integer> buttonToSlotMap, InventoryView mockView, MenuView<?, ?> superiorMenuView) {
+        public ActiveFormSession(Inventory inventory, String title, List<ButtonTarget> buttonTargets, InventoryView mockView, MenuView<?, ?> superiorMenuView) {
             this.inventory = inventory;
             this.title = title;
-            this.buttonToSlotMap = Collections.unmodifiableList(new ArrayList<>(buttonToSlotMap));
+            this.buttonTargets = Collections.unmodifiableList(new ArrayList<>(buttonTargets));
             this.mockView = mockView;
             this.superiorMenuView = superiorMenuView;
+            this.createdAtMillis = System.currentTimeMillis();
         }
 
         public Inventory getInventory() {
@@ -509,8 +596,8 @@ public class FormManager {
             return title;
         }
 
-        public List<Integer> getButtonToSlotMap() {
-            return buttonToSlotMap;
+        public List<ButtonTarget> getButtonTargets() {
+            return buttonTargets;
         }
 
         public InventoryView getMockView() {
@@ -523,6 +610,10 @@ public class FormManager {
 
         public boolean markResponseHandled() {
             return responseHandled.compareAndSet(false, true);
+        }
+
+        public boolean isExpired(long timeoutMillis) {
+            return timeoutMillis > 0L && System.currentTimeMillis() - createdAtMillis > timeoutMillis;
         }
 
         public boolean markCloseDispatched() {

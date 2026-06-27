@@ -4,6 +4,7 @@ import com.siberanka.ssbgeyser.config.ConfigManager;
 import com.siberanka.ssbgeyser.form.FormManager;
 import com.siberanka.ssbgeyser.listener.MenuOpenListener;
 import com.siberanka.ssbgeyser.util.TextureMapper;
+import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
@@ -67,7 +68,7 @@ public class SSBGeyser extends JavaPlugin implements TabExecutor {
             return true;
         }
 
-        sender.sendMessage(configManager.getMessage("prefix") + "§eSSBGeyser Addon - Usage: /ssbgeyser reload");
+        sender.sendMessage(configManager.getMessage("prefix") + ChatColor.YELLOW + "SSBGeyser Addon - Usage: /ssbgeyser reload");
         return true;
     }
 

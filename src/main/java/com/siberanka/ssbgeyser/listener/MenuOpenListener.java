@@ -50,11 +50,15 @@ public class MenuOpenListener implements Listener {
             String title = event.getView().getTitle();
 
             // Send form in the next tick to ensure thread/packet synchronization safety
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                if (player.isOnline()) {
-                    formManager.sendForm(player, inventory, title);
-                }
-            });
+            try {
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (player.isOnline() && plugin.isEnabled()) {
+                        formManager.sendForm(player, inventory, title);
+                    }
+                });
+            } catch (IllegalStateException ignored) {
+                // Server is shutting down or this plugin was disabled during the open event.
+            }
         }
     }
 
@@ -90,7 +94,11 @@ public class MenuOpenListener implements Listener {
         String pluginName = event.getPlugin().getName();
         if (pluginName.equalsIgnoreCase("SuperiorSkyblock2") || pluginName.equalsIgnoreCase("Floodgate")) {
             formManager.closeAllActiveForms();
-            Bukkit.getScheduler().runTask(plugin, () -> Bukkit.getPluginManager().disablePlugin(plugin));
+            try {
+                Bukkit.getScheduler().runTask(plugin, () -> Bukkit.getPluginManager().disablePlugin(plugin));
+            } catch (IllegalStateException ignored) {
+                // Plugin disable is already in progress.
+            }
         }
     }
 
@@ -98,8 +106,23 @@ public class MenuOpenListener implements Listener {
         try {
             return FloodgateApi.getInstance().isFloodgatePlayer(player.getUniqueId());
         } catch (RuntimeException ex) {
-            plugin.getLogger().warning("Floodgate API was unavailable while opening a menu for " + player.getName() + ".");
+            plugin.getLogger().warning("Floodgate API was unavailable while opening a menu for " + safeForLog(player.getName()) + ".");
             return false;
         }
+    }
+
+    private String safeForLog(String input) {
+        if (input == null) {
+            return "";
+        }
+
+        StringBuilder safe = new StringBuilder(Math.min(input.length(), 64));
+        for (int index = 0; index < input.length() && safe.length() < 64; index++) {
+            char ch = input.charAt(index);
+            if (ch >= 32 && ch != 127) {
+                safe.append(ch);
+            }
+        }
+        return safe.toString();
     }
 }
