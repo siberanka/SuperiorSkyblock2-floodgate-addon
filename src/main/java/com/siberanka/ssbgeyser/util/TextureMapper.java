@@ -10,33 +10,12 @@ import org.geysermc.cumulus.util.FormImage;
 
 import java.net.URI;
 import java.net.URL;
-import java.util.HashMap;
 import java.util.Map;
 
 public class TextureMapper {
 
     private static final int MAX_TEXTURE_VALUE_LENGTH = 512;
     private final ConfigManager configManager;
-    private static final Map<String, String> VANILLA_CORRECTIONS = new HashMap<>();
-
-    static {
-        // Map common Java materials that differ from Bedrock texture file names
-        VANILLA_CORRECTIONS.put("SLIME_BALL", "slimeball");
-        VANILLA_CORRECTIONS.put("REDSTONE", "redstone_dust");
-        VANILLA_CORRECTIONS.put("GLISTERING_MELON_SLICE", "melon_speckled");
-        VANILLA_CORRECTIONS.put("GOLDEN_CARROT", "carrot_golden");
-        VANILLA_CORRECTIONS.put("EYE_OF_ENDER", "ender_eye");
-        VANILLA_CORRECTIONS.put("FERMENTED_SPIDER_EYE", "spider_eye_fermented");
-        VANILLA_CORRECTIONS.put("MAP", "map_empty");
-        VANILLA_CORRECTIONS.put("FILLED_MAP", "map_filled");
-        VANILLA_CORRECTIONS.put("WRITABLE_BOOK", "book_writable");
-        VANILLA_CORRECTIONS.put("WRITTEN_BOOK", "book_written");
-        VANILLA_CORRECTIONS.put("COMPASS", "compass_item");
-        VANILLA_CORRECTIONS.put("CLOCK", "clock_item");
-        VANILLA_CORRECTIONS.put("FIREWORK_ROCKET", "fireworks");
-        VANILLA_CORRECTIONS.put("FIREWORK_STAR", "fireworks_charge");
-        VANILLA_CORRECTIONS.put("NETHER_STAR", "nether_star");
-    }
 
     public TextureMapper(ConfigManager configManager) {
         this.configManager = configManager;
@@ -44,23 +23,13 @@ public class TextureMapper {
 
     public TextureResult getTexture(ItemStack item) {
         if (item == null || item.getType() == Material.AIR) {
-            return new TextureResult(FormImage.Type.PATH, "textures/blocks/glass");
+            return null;
         }
 
         Material material = item.getType();
         String matName = material.name();
 
-        // 1. Check user config overrides
-        Map<String, String> overrides = configManager.getTextureMappings();
-        if (overrides.containsKey(matName)) {
-            String overridePath = overrides.get(matName);
-            TextureResult overrideTexture = createSafeTextureResult(overridePath);
-            if (overrideTexture != null) {
-                return overrideTexture;
-            }
-        }
-
-        // 2. Check if it's a player head with custom skin URL
+        // Prefer real skin URLs for player heads; guessed Bedrock paths often render as missing textures.
         if (material == Material.PLAYER_HEAD) {
             ItemMeta meta = item.getItemMeta();
             if (meta instanceof SkullMeta skullMeta) {
@@ -78,17 +47,14 @@ public class TextureMapper {
             }
         }
 
-        // 3. Fallback to standard item/block path
-        String textureName = matName.toLowerCase();
-        if (VANILLA_CORRECTIONS.containsKey(matName)) {
-            textureName = VANILLA_CORRECTIONS.get(matName);
+        // Only send explicit, validated mappings. Unknown paths are intentionally omitted
+        // so Bedrock clients render a clean text button instead of the purple/black missing texture.
+        Map<String, String> overrides = configManager.getTextureMappings();
+        if (overrides.containsKey(matName)) {
+            return createSafeTextureResult(overrides.get(matName));
         }
 
-        if (material.isBlock()) {
-            return new TextureResult(FormImage.Type.PATH, "textures/blocks/" + textureName);
-        } else {
-            return new TextureResult(FormImage.Type.PATH, "textures/items/" + textureName);
-        }
+        return null;
     }
 
     public static class TextureResult {

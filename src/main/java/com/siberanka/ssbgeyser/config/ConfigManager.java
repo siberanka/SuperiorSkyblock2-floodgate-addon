@@ -26,6 +26,7 @@ public class ConfigManager {
 
     // GUI settings cache
     private boolean hideFillerItems;
+    private boolean hideEmptyButtons;
     private List<String> fillerMaterials;
     private Set<String> fillerMaterialSet;
     private Map<String, String> textureMappings;
@@ -43,6 +44,7 @@ public class ConfigManager {
 
         // Load cached values
         this.hideFillerItems = config.getBoolean("gui.hide-filler-items", true);
+        this.hideEmptyButtons = config.getBoolean("gui.hide-empty-buttons", true);
         this.fillerMaterials = config.getStringList("gui.filler-materials");
         this.fillerMaterialSet = new HashSet<>();
         for (String fillerMaterial : this.fillerMaterials) {
@@ -95,6 +97,10 @@ public class ConfigManager {
 
     public boolean isHideFillerItems() {
         return hideFillerItems;
+    }
+
+    public boolean isHideEmptyButtons() {
+        return hideEmptyButtons;
     }
 
     public List<String> getFillerMaterials() {

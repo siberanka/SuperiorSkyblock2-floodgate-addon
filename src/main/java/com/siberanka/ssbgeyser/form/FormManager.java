@@ -21,7 +21,6 @@ import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.geysermc.cumulus.form.SimpleForm;
-import org.geysermc.cumulus.util.FormImage;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
@@ -88,7 +87,7 @@ public class FormManager {
             }
 
             String matName = item.getType().name();
-            if (configManager.isHideFillerItems() && configManager.isFillerMaterial(matName)) {
+            if (configManager.isHideFillerItems() && isLayoutFillerMaterial(matName)) {
                 continue;
             }
 
@@ -108,13 +107,24 @@ public class FormManager {
                     if (remainingLength <= 0) {
                         break;
                     }
-                    buttonText.append("\n").append(sanitizeFormText(line, remainingLength, false));
+                    String sanitizedLine = sanitizeFormText(line, remainingLength, false);
+                    if (!sanitizedLine.isBlank()) {
+                        buttonText.append("\n").append(sanitizedLine);
+                    }
                 }
+            }
+
+            if (configManager.isHideEmptyButtons() && buttonText.toString().isBlank()) {
+                continue;
             }
 
             // Map texture
             TextureMapper.TextureResult texture = textureMapper.getTexture(item);
-            formBuilder.button(buttonText.toString(), texture.getType(), texture.getPath());
+            if (texture != null) {
+                formBuilder.button(buttonText.toString(), texture.getType(), texture.getPath());
+            } else {
+                formBuilder.button(buttonText.toString());
+            }
             buttonToSlotMap.add(slot);
         }
 
@@ -319,6 +329,12 @@ public class FormManager {
     private MenuView<?, ?> getSuperiorMenuView(Inventory inventory) {
         InventoryHolder holder = inventory.getHolder();
         return holder instanceof MenuView<?, ?> menuView ? menuView : null;
+    }
+
+    private boolean isLayoutFillerMaterial(String materialName) {
+        return configManager.isFillerMaterial(materialName)
+                || materialName.endsWith("_STAINED_GLASS_PANE")
+                || materialName.equals("GLASS_PANE");
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
