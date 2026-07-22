@@ -13,6 +13,13 @@ gui:
   # will not be displayed as Bedrock form buttons.
   hide-empty-buttons: true
 
+  # Bedrock form buttons use a light background. White/light-gray Java text is
+  # remapped to these readable defaults while semantic colors remain intact.
+  text:
+    remap-low-contrast-colors: true
+    default-title-color: "GOLD"
+    default-lore-color: "DARK_GRAY"
+
   # Materials that should be treated as layout fillers and filtered out.
   filler-materials:
     - "GRAY_STAINED_GLASS_PANE"

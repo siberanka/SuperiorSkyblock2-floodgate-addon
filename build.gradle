@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.siberanka'
-version = '1.0.3-beta'
+version = '1.0.4-beta'
 
 repositories {
     mavenCentral()
@@ -36,6 +36,12 @@ dependencies {
     
     // SuperiorSkyblock2 API
     compileOnly 'com.bgsoftware:SuperiorSkyblockAPI:2026.1'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+}
+
+test {
+    useJUnitPlatform()
 }
 
 java {

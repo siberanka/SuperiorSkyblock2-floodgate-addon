@@ -28,6 +28,9 @@ public class ConfigManager {
     private boolean hideFillerItems;
     private boolean hideEmptyButtons;
     private boolean playClickSound;
+    private boolean remapLowContrastText;
+    private char buttonTitleColor;
+    private char buttonLoreColor;
     private long minClickIntervalMillis;
     private long formSessionTimeoutMillis;
     private List<String> fillerMaterials;
@@ -49,6 +52,9 @@ public class ConfigManager {
         this.hideFillerItems = config.getBoolean("gui.hide-filler-items", true);
         this.hideEmptyButtons = config.getBoolean("gui.hide-empty-buttons", true);
         this.playClickSound = config.getBoolean("gui.play-click-sound", false);
+        this.remapLowContrastText = config.getBoolean("gui.text.remap-low-contrast-colors", true);
+        this.buttonTitleColor = parseColorCode("gui.text.default-title-color", ChatColor.GOLD);
+        this.buttonLoreColor = parseColorCode("gui.text.default-lore-color", ChatColor.DARK_GRAY);
         this.minClickIntervalMillis = clampLong(config.getLong("security.min-click-interval-ms", 150L), 0L, 2000L);
         this.formSessionTimeoutMillis = clampLong(config.getLong("security.form-session-timeout-ms", 30000L), 5000L, 300000L);
         this.fillerMaterials = config.getStringList("gui.filler-materials");
@@ -113,6 +119,18 @@ public class ConfigManager {
         return playClickSound;
     }
 
+    public boolean isRemapLowContrastText() {
+        return remapLowContrastText;
+    }
+
+    public char getButtonTitleColor() {
+        return buttonTitleColor;
+    }
+
+    public char getButtonLoreColor() {
+        return buttonLoreColor;
+    }
+
     public long getMinClickIntervalMillis() {
         return minClickIntervalMillis;
     }
@@ -152,6 +170,23 @@ public class ConfigManager {
             plugin.getLogger().warning("Invalid gui.click-sound value '" + safeForLog(rawSound) + "'. Click sound disabled.");
             return null;
         }
+    }
+
+    private char parseColorCode(String path, ChatColor fallback) {
+        String rawColor = config.getString(path, fallback.name());
+        if (rawColor != null) {
+            try {
+                ChatColor color = ChatColor.valueOf(rawColor.trim().toUpperCase(Locale.ROOT));
+                if (color.isColor()) {
+                    return color.getChar();
+                }
+            } catch (IllegalArgumentException ignored) {
+                // Warn below and use the high-contrast default.
+            }
+        }
+
+        plugin.getLogger().warning("Invalid " + path + " value '" + safeForLog(rawColor) + "'. Using " + fallback.name() + ".");
+        return fallback.getChar();
     }
 
     private long clampLong(long value, long min, long max) {

@@ -2,11 +2,11 @@ package com.siberanka.ssbgeyser.form;
 
 import com.siberanka.ssbgeyser.SSBGeyser;
 import com.siberanka.ssbgeyser.config.ConfigManager;
+import com.siberanka.ssbgeyser.util.BedrockTextFormatter;
 import com.siberanka.ssbgeyser.util.TextureMapper;
 import com.bgsoftware.superiorskyblock.api.menu.Menu;
 import com.bgsoftware.superiorskyblock.api.menu.view.MenuView;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
@@ -86,6 +86,7 @@ public class FormManager {
         List<ButtonTarget> buttonTargets = new ArrayList<>();
         int size = inventory.getSize();
         MenuView<?, ?> superiorMenuView = getSuperiorMenuView(inventory);
+        boolean bankLogsMenu = isBankLogsMenu(superiorMenuView);
 
         for (int slot = 0; slot < size; slot++) {
             try {
@@ -103,35 +104,19 @@ public class FormManager {
                 String displayName = (meta != null && meta.hasDisplayName()) ? meta.getDisplayName() : formatItemName(matName);
                 List<String> lore = (meta != null && meta.hasLore()) ? meta.getLore() : new ArrayList<>();
 
-                // Build button text (Display name + Lore as description)
-                StringBuilder buttonText = new StringBuilder(sanitizeFormText(displayName, MAX_BUTTON_TEXT_LENGTH, false));
-                if (lore != null && !lore.isEmpty()) {
-                    int loreLines = 0;
-                    for (String line : lore) {
-                        if (loreLines++ >= MAX_LORE_LINES || buttonText.length() >= MAX_BUTTON_TEXT_LENGTH) {
-                            break;
-                        }
-                        int remainingLength = MAX_BUTTON_TEXT_LENGTH - buttonText.length() - 1;
-                        if (remainingLength <= 0) {
-                            break;
-                        }
-                        String sanitizedLine = sanitizeFormText(line, remainingLength, false);
-                        if (!sanitizedLine.isBlank()) {
-                            buttonText.append("\n").append(sanitizedLine);
-                        }
-                    }
-                }
+                String buttonText = buildButtonText(displayName, lore,
+                        bankLogsMenu && item.getType() == Material.PAPER);
 
-                if (configManager.isHideEmptyButtons() && buttonText.toString().isBlank()) {
+                if (configManager.isHideEmptyButtons() && !BedrockTextFormatter.hasVisibleText(buttonText)) {
                     continue;
                 }
 
                 // Map texture
                 TextureMapper.TextureResult texture = textureMapper.getTexture(item);
                 if (texture != null) {
-                    formBuilder.button(buttonText.toString(), texture.getType(), texture.getPath());
+                    formBuilder.button(buttonText, texture.getType(), texture.getPath());
                 } else {
-                    formBuilder.button(buttonText.toString());
+                    formBuilder.button(buttonText);
                 }
                 buttonTargets.add(new ButtonTarget(slot, item.getType()));
             } catch (RuntimeException ex) {
@@ -361,6 +346,88 @@ public class FormManager {
         return configManager.isFillerMaterial(materialName);
     }
 
+    private boolean isBankLogsMenu(MenuView<?, ?> menuView) {
+        if (menuView == null || menuView.getMenu() == null) {
+            return false;
+        }
+
+        String identifier = menuView.getMenu().getIdentifier();
+        return "MenuBankLogs".equalsIgnoreCase(identifier)
+                || "bank-logs".equalsIgnoreCase(identifier)
+                || "MenuBankLogs".equals(menuView.getMenu().getClass().getSimpleName());
+    }
+
+    private String buildButtonText(String displayName, List<String> lore, boolean compactBankLog) {
+        StringBuilder buttonText = new StringBuilder(MAX_BUTTON_TEXT_LENGTH);
+        appendButtonLine(buttonText, displayName, configManager.getButtonTitleColor());
+
+        if (lore == null || lore.isEmpty() || buttonText.length() >= MAX_BUTTON_TEXT_LENGTH) {
+            return buttonText.toString();
+        }
+
+        List<String> visibleLore = new ArrayList<>();
+        for (String line : lore) {
+            if (visibleLore.size() >= MAX_LORE_LINES) {
+                break;
+            }
+            if (!sanitizeFormText(line, MAX_BUTTON_TEXT_LENGTH, false).isBlank()) {
+                visibleLore.add(line);
+            }
+        }
+
+        if (compactBankLog && visibleLore.size() >= 4) {
+            appendCombinedButtonLine(buttonText, visibleLore.get(0), visibleLore.get(1));
+            appendCombinedButtonLine(buttonText, visibleLore.get(2), visibleLore.get(3));
+        } else {
+            for (String line : visibleLore) {
+                appendButtonLine(buttonText, line, configManager.getButtonLoreColor());
+            }
+        }
+
+        return buttonText.toString();
+    }
+
+    private void appendCombinedButtonLine(StringBuilder buttonText, String first, String second) {
+        int remainingLength = getRemainingButtonTextLength(buttonText);
+        if (remainingLength <= 0) {
+            return;
+        }
+
+        String formattedFirst = BedrockTextFormatter.formatButtonLine(first, remainingLength,
+                configManager.getButtonLoreColor(), configManager.isRemapLowContrastText());
+        String formattedSecond = BedrockTextFormatter.formatButtonLine(second, remainingLength,
+                configManager.getButtonLoreColor(), configManager.isRemapLowContrastText());
+        String combinedLine = BedrockTextFormatter.formatButtonLine(formattedFirst + " | " + formattedSecond,
+                remainingLength, configManager.getButtonLoreColor(), configManager.isRemapLowContrastText());
+        appendFormattedButtonLine(buttonText, combinedLine);
+    }
+
+    private void appendButtonLine(StringBuilder buttonText, String rawLine, char defaultColor) {
+        int remainingLength = getRemainingButtonTextLength(buttonText);
+        if (remainingLength <= 0) {
+            return;
+        }
+
+        String formatted = BedrockTextFormatter.formatButtonLine(rawLine, remainingLength, defaultColor,
+                configManager.isRemapLowContrastText());
+        appendFormattedButtonLine(buttonText, formatted);
+    }
+
+    private void appendFormattedButtonLine(StringBuilder buttonText, String formattedLine) {
+        if (!BedrockTextFormatter.hasVisibleText(formattedLine)) {
+            return;
+        }
+
+        if (buttonText.length() > 0) {
+            buttonText.append('\n');
+        }
+        buttonText.append(formattedLine);
+    }
+
+    private int getRemainingButtonTextLength(StringBuilder buttonText) {
+        return MAX_BUTTON_TEXT_LENGTH - buttonText.length() - (buttonText.length() == 0 ? 0 : 1);
+    }
+
     private boolean isClickRateLimited(UUID uuid) {
         long minIntervalMillis = configManager.getMinClickIntervalMillis();
         if (minIntervalMillis <= 0L) {
@@ -417,22 +484,7 @@ public class FormManager {
             return "";
         }
 
-        String stripped = ChatColor.stripColor(input);
-        if (stripped == null) {
-            return "";
-        }
-
-        StringBuilder sanitized = new StringBuilder(Math.min(stripped.length(), maxLength));
-        for (int index = 0; index < stripped.length() && sanitized.length() < maxLength; index++) {
-            char ch = stripped.charAt(index);
-            if (ch == '\n' && allowNewLines) {
-                sanitized.append(ch);
-            } else if (ch >= 32 && ch != 127) {
-                sanitized.append(ch);
-            }
-        }
-
-        return sanitized.toString();
+        return BedrockTextFormatter.plainText(input, maxLength, allowNewLines);
     }
 
     private String safeForLog(String input) {
