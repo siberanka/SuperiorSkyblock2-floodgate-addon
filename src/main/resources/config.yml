@@ -35,6 +35,11 @@ gui:
   # URL images are supported and can be used for custom models or special heads.
   texture-mappings: {}
 
+  # Custom Java head textures are skin atlases and render incorrectly as form logos.
+  # Use a built-in Bedrock world-template glyph for island creation buttons.
+  # Set this to an empty string to show clean text-only buttons instead.
+  island-creation-icon: "textures/i/glyph_world_template.png"
+
   # Keep this false unless you intentionally want an extra form click sound.
   # SuperiorSkyblock2 menus can already play their own success/fail sounds.
   play-click-sound: false

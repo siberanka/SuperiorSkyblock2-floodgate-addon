@@ -36,6 +36,7 @@ public class ConfigManager {
     private List<String> fillerMaterials;
     private Set<String> fillerMaterialSet;
     private Map<String, String> textureMappings;
+    private String islandCreationIcon;
     private Sound clickSound;
 
     public ConfigManager(SSBGeyser plugin) {
@@ -65,6 +66,7 @@ public class ConfigManager {
             }
         }
         this.clickSound = parseSound(config.getString("gui.click-sound", "UI_BUTTON_CLICK"));
+        this.islandCreationIcon = config.getString("gui.island-creation-icon", "textures/i/glyph_world_template.png");
         
         this.textureMappings = new HashMap<>();
         if (config.isConfigurationSection("gui.texture-mappings")) {
@@ -149,6 +151,10 @@ public class ConfigManager {
 
     public Map<String, String> getTextureMappings() {
         return textureMappings;
+    }
+
+    public String getIslandCreationIcon() {
+        return islandCreationIcon;
     }
 
     public Sound getClickSound() {

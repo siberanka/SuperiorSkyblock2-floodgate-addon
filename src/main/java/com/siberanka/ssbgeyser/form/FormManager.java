@@ -86,7 +86,7 @@ public class FormManager {
         List<ButtonTarget> buttonTargets = new ArrayList<>();
         int size = inventory.getSize();
         MenuView<?, ?> superiorMenuView = getSuperiorMenuView(inventory);
-        boolean bankLogsMenu = isBankLogsMenu(superiorMenuView);
+        boolean islandCreationMenu = isMenu(superiorMenuView, "MenuIslandCreation", "island-creation");
 
         for (int slot = 0; slot < size; slot++) {
             try {
@@ -104,15 +104,15 @@ public class FormManager {
                 String displayName = (meta != null && meta.hasDisplayName()) ? meta.getDisplayName() : formatItemName(matName);
                 List<String> lore = (meta != null && meta.hasLore()) ? meta.getLore() : new ArrayList<>();
 
-                String buttonText = buildButtonText(displayName, lore,
-                        bankLogsMenu && item.getType() == Material.PAPER);
+                String buttonText = buildButtonText(displayName, lore);
 
                 if (configManager.isHideEmptyButtons() && !BedrockTextFormatter.hasVisibleText(buttonText)) {
                     continue;
                 }
 
                 // Map texture
-                TextureMapper.TextureResult texture = textureMapper.getTexture(item);
+                TextureMapper.TextureResult texture = textureMapper.getTexture(item,
+                        islandCreationMenu && item.getType() == Material.PLAYER_HEAD);
                 if (texture != null) {
                     formBuilder.button(buttonText, texture.getType(), texture.getPath());
                 } else {
@@ -346,18 +346,18 @@ public class FormManager {
         return configManager.isFillerMaterial(materialName);
     }
 
-    private boolean isBankLogsMenu(MenuView<?, ?> menuView) {
+    private boolean isMenu(MenuView<?, ?> menuView, String identifier, String legacyIdentifier) {
         if (menuView == null || menuView.getMenu() == null) {
             return false;
         }
 
-        String identifier = menuView.getMenu().getIdentifier();
-        return "MenuBankLogs".equalsIgnoreCase(identifier)
-                || "bank-logs".equalsIgnoreCase(identifier)
-                || "MenuBankLogs".equals(menuView.getMenu().getClass().getSimpleName());
+        String actualIdentifier = menuView.getMenu().getIdentifier();
+        return identifier.equalsIgnoreCase(actualIdentifier)
+                || legacyIdentifier.equalsIgnoreCase(actualIdentifier)
+                || identifier.equals(menuView.getMenu().getClass().getSimpleName());
     }
 
-    private String buildButtonText(String displayName, List<String> lore, boolean compactBankLog) {
+    private String buildButtonText(String displayName, List<String> lore) {
         StringBuilder buttonText = new StringBuilder(MAX_BUTTON_TEXT_LENGTH);
         appendButtonLine(buttonText, displayName, configManager.getButtonTitleColor());
 
@@ -375,31 +375,11 @@ public class FormManager {
             }
         }
 
-        if (compactBankLog && visibleLore.size() >= 4) {
-            appendCombinedButtonLine(buttonText, visibleLore.get(0), visibleLore.get(1));
-            appendCombinedButtonLine(buttonText, visibleLore.get(2), visibleLore.get(3));
-        } else {
-            for (String line : visibleLore) {
-                appendButtonLine(buttonText, line, configManager.getButtonLoreColor());
-            }
+        for (String line : visibleLore) {
+            appendButtonLine(buttonText, line, configManager.getButtonLoreColor());
         }
 
         return buttonText.toString();
-    }
-
-    private void appendCombinedButtonLine(StringBuilder buttonText, String first, String second) {
-        int remainingLength = getRemainingButtonTextLength(buttonText);
-        if (remainingLength <= 0) {
-            return;
-        }
-
-        String formattedFirst = BedrockTextFormatter.formatButtonLine(first, remainingLength,
-                configManager.getButtonLoreColor(), configManager.isRemapLowContrastText());
-        String formattedSecond = BedrockTextFormatter.formatButtonLine(second, remainingLength,
-                configManager.getButtonLoreColor(), configManager.isRemapLowContrastText());
-        String combinedLine = BedrockTextFormatter.formatButtonLine(formattedFirst + " | " + formattedSecond,
-                remainingLength, configManager.getButtonLoreColor(), configManager.isRemapLowContrastText());
-        appendFormattedButtonLine(buttonText, combinedLine);
     }
 
     private void appendButtonLine(StringBuilder buttonText, String rawLine, char defaultColor) {

@@ -21,13 +21,19 @@ public class TextureMapper {
         this.configManager = configManager;
     }
 
-    public TextureResult getTexture(ItemStack item) {
+    public TextureResult getTexture(ItemStack item, boolean islandCreationHead) {
         if (item == null || item.getType() == Material.AIR) {
             return null;
         }
 
         Material material = item.getType();
         String matName = material.name();
+
+        // Custom Java head skins are full skin atlases, not icon-ready images. On the
+        // island creation form, replace them with a stable Bedrock world-template glyph.
+        if (islandCreationHead && material == Material.PLAYER_HEAD) {
+            return createSafeTextureResult(configManager.getIslandCreationIcon());
+        }
 
         // Prefer real skin URLs for player heads; guessed Bedrock paths often render as missing textures.
         if (material == Material.PLAYER_HEAD) {
